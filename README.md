@@ -43,3 +43,12 @@
 ## Roboto Slab
 - Fonts\Roboto_Slab\*
 - https://fonts.google.com/specimen/Roboto+Slab
+
+# External (not in the unitypackage)
+
+## .gitignore
+- A merge between the GitHub and Unity Collaborate ignore file with additions for Rider and kdiff3.
+
+## .gitattributes
+- Adds support for the unityyamlmerge tool.
+- You have to set it up in your .gitconfig too, see https://docs.unity3d.com/Manual/SmartMerge.html
