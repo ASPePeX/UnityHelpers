@@ -3,12 +3,15 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
-namespace Assets.Plugins.Editor.JetBrains
+namespace Plugins.Editor.JetBrains
 {
   [InitializeOnLoad]
   public static class RiderPlugin
@@ -30,9 +33,7 @@ namespace Assets.Plugins.Editor.JetBrains
     {
       get
       {
-        if (string.IsNullOrEmpty(DefaultApp))
-          return false;
-        return DefaultApp.ToLower().Contains("rider"); // seems like .app doesn't exist as file
+        return !string.IsNullOrEmpty(DefaultApp) && DefaultApp.ToLower().Contains("rider");
       }
     }
 
@@ -45,47 +46,34 @@ namespace Assets.Plugins.Editor.JetBrains
         var newPath = riderFileInfo.FullName;
         // try to search the new version
 
-        switch (riderFileInfo.Extension)
+        if (!riderFileInfo.Exists)
         {
-          /*
-              Unity itself transforms lnk to exe
-              case ".lnk":
-              {
-                if (riderFileInfo.Directory != null && riderFileInfo.Directory.Exists)
-                {
-                  var possibleNew = riderFileInfo.Directory.GetFiles("*ider*.lnk");
-                  if (possibleNew.Length > 0)
-                    newPath = possibleNew.OrderBy(a => a.LastWriteTime).Last().FullName;
-                }
-                break;
-              }*/
-          case ".exe":
+          switch (riderFileInfo.Extension)
           {
-            var possibleNew =
-              riderFileInfo.Directory.Parent.Parent.GetDirectories("*ider*")
-                .SelectMany(a => a.GetDirectories("bin"))
-                .SelectMany(a => a.GetFiles(riderFileInfo.Name))
-                .ToArray();
-            if (possibleNew.Length > 0)
-              newPath = possibleNew.OrderBy(a => a.LastWriteTime).Last().FullName;
-            break;
+            case ".exe":
+            {
+              var possibleNew =
+                riderFileInfo.Directory.Parent.Parent.GetDirectories("*ider*")
+                  .SelectMany(a => a.GetDirectories("bin"))
+                  .SelectMany(a => a.GetFiles(riderFileInfo.Name))
+                  .ToArray();
+              if (possibleNew.Length > 0)
+                newPath = possibleNew.OrderBy(a => a.LastWriteTime).Last().FullName;
+              break;
+            }
           }
-          default:
+          if (newPath != riderFileInfo.FullName)
           {
-            break;
+            Log(string.Format("Update {0} to {1}", riderFileInfo.FullName, newPath));
+            EditorPrefs.SetString("kScriptsDefaultApp", newPath);
           }
         }
-        if (newPath != riderFileInfo.FullName)
-        {
-          Log(string.Format("Update {0} to {1}", riderFileInfo.FullName, newPath));
-          EditorPrefs.SetString("kScriptsDefaultApp", newPath);
-        }
-      }
 
-      var projectDirectory = Directory.GetParent(Application.dataPath).FullName;
-      var projectName = Path.GetFileName(projectDirectory);
-      SlnFile = Path.Combine(projectDirectory, string.Format("{0}.sln", projectName));
-      UpdateUnitySettings(SlnFile);
+        var projectDirectory = Directory.GetParent(Application.dataPath).FullName;
+        var projectName = Path.GetFileName(projectDirectory);
+        SlnFile = Path.Combine(projectDirectory, string.Format("{0}.sln", projectName));
+        UpdateUnitySettings(SlnFile);
+      }
     }
 
     /// <summary>
@@ -124,11 +112,55 @@ namespace Assets.Plugins.Editor.JetBrains
         if (selected.GetType().ToString() == "UnityEditor.MonoScript" ||
             selected.GetType().ToString() == "UnityEngine.Shader")
         {
+          SyncSolution(); // added to handle opening file, which was just recently created.
           var assetFilePath = Path.Combine(appPath, AssetDatabase.GetAssetPath(selected));
-          var args = string.Format("{0}{1}{0} -l {2} {0}{3}{0}", "\"", SlnFile, line, assetFilePath);
-
-          CallRider(riderFileInfo.FullName, args);
+          if (!CallUDPRider(line, SlnFile, assetFilePath))
+          {
+              var args = string.Format("{0}{1}{0} -l {2} {0}{3}{0}", "\"", SlnFile, line, assetFilePath);
+              CallRider(riderFileInfo.FullName, args);
+          }
           return true;
+        }
+      }
+      return false;
+    }
+
+    private static bool CallUDPRider(int line, string slnPath, string filePath)
+    {
+      Log(string.Format("CallUDPRider({0} {1} {2})", line, slnPath, filePath));
+      using (var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+      {
+        try
+        {
+          sock.ReceiveTimeout = 10000;
+
+          var serverAddr = IPAddress.Parse("127.0.0.1");
+          var endPoint = new IPEndPoint(serverAddr, 11234);
+
+          var text = line + "\r\n" + slnPath + "\r\n" + filePath + "\r\n";
+          var send_buffer = Encoding.ASCII.GetBytes(text);
+          sock.SendTo(send_buffer, endPoint);
+
+          var rcv_buffer = new byte[1024];
+
+          // Poll the socket for reception with a 10 ms timeout.
+          if (!sock.Poll(10000, SelectMode.SelectRead))
+          {
+            throw new TimeoutException();
+          }
+
+          int bytesRec = sock.Receive(rcv_buffer); // This call will not block
+          string status = Encoding.ASCII.GetString(rcv_buffer, 0, bytesRec);
+          if (status == "ok")
+          {
+            ActivateWindow(new FileInfo(DefaultApp).FullName);
+            return true;
+          }
+        }
+        catch (Exception)
+        {
+          //error Timed out
+          Log("Socket error or no response. Have you installed RiderUnity3DConnector in Rider?");
         }
       }
       return false;
@@ -136,6 +168,11 @@ namespace Assets.Plugins.Editor.JetBrains
 
     private static void CallRider(string riderPath, string args)
     {
+      if (!new FileInfo(riderPath).Exists)
+      {
+        EditorUtility.DisplayDialog("Rider executable not found", "Please update 'External Script Editor' path to JetBrains Rider.", "OK");
+      }
+
       var proc = new Process();
       if (new FileInfo(riderPath).Extension == ".app")
       {
@@ -156,43 +193,43 @@ namespace Assets.Plugins.Editor.JetBrains
       proc.StartInfo.RedirectStandardOutput = true;
       proc.Start();
 
+      ActivateWindow(riderPath);
+    }
+
+    private static void ActivateWindow(string riderPath)
+    {
       if (new FileInfo(riderPath).Extension == ".exe")
       {
         try
         {
-          ActivateWindow();
+          var process = Process.GetProcesses().FirstOrDefault(p =>
+          {
+            string processName;
+            try
+            {
+              processName = p.ProcessName; // some processes like kaspersky antivirus throw exception on attempt to get ProcessName
+            }
+            catch (Exception)
+            {
+              return false;
+            }
+
+            return !p.HasExited && processName.ToLower().Contains("rider");
+          });
+          if (process != null)
+          {
+            // Collect top level windows
+            var topLevelWindows = User32Dll.GetTopLevelWindowHandles();
+            // Get process main window title
+            var windowHandle = topLevelWindows.FirstOrDefault(hwnd => User32Dll.GetWindowProcessId(hwnd) == process.Id);
+            if (windowHandle != IntPtr.Zero)
+              User32Dll.SetForegroundWindow(windowHandle);
+          }
         }
         catch (Exception e)
         {
           Log("Exception on ActivateWindow: " + e);
         }
-      }
-    }
-
-    private static void ActivateWindow()
-    {
-      var process = Process.GetProcesses().FirstOrDefault(p =>
-      {
-        string processName;
-        try
-        {
-          processName = p.ProcessName; // some processes like kaspersky antivirus throw exception on attempt to get ProcessName
-        }
-        catch (Exception)
-        {
-          return false;
-        }
-
-        return !p.HasExited && processName.Contains("Rider");
-      });
-      if (process != null)
-      {
-        // Collect top level windows
-        var topLevelWindows = User32Dll.GetTopLevelWindowHandles();
-        // Get process main window title
-        var windowHandle = topLevelWindows.FirstOrDefault(hwnd => User32Dll.GetWindowProcessId(hwnd) == process.Id);
-        if (windowHandle != IntPtr.Zero)
-          User32Dll.SetForegroundWindow(windowHandle);
       }
     }
 

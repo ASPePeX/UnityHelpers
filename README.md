@@ -3,13 +3,21 @@
 ## Rider IDE Integration
 - Plugins\Editor\JetBrains\*
 - https://github.com/JetBrains/Unity3dRider
-- 198a9920860b4b58185d180f4609f16378f92561
+- (2017-01-27) 2f3b78fdc6b2c56802d09901a290f65068183867
 
 # Fonts
 
 ## Abel
 - Fonts\Abel\*
 - https://fonts.google.com/specimen/Abel
+
+## Amatic SC
+- Fonts\Amatic_SC\*
+- https://fonts.google.com/specimen/Amatic+SC
+
+## Architects Daughter
+- Fonts\Architects_Daughter\*
+- https://fonts.google.com/specimen/Architects+Daughter
 
 ## Droid Sans
 - Fonts\Droid_Sans\*
@@ -23,10 +31,18 @@
 - Fonts\Droid_Serif\*
 - https://fonts.google.com/specimen/Droid+Serif
 
+## Orbitron
+- Fonts\Orbitron\*
+- https://fonts.google.com/specimen/Orbitron
+
 ## FontAwesome
 - Fonts\FontAwesome\*
 - http://fontawesome.io/
 - 4.7.0
+
+## Righteous
+- Fonts\Righteous\*
+- https://fonts.google.com/specimen/Righteous
 
 ## Roboto
 - Fonts\Roboto\*
@@ -43,6 +59,10 @@
 ## Roboto Slab
 - Fonts\Roboto_Slab\*
 - https://fonts.google.com/specimen/Roboto+Slab
+
+## VT323
+- Fonts\VT323\*
+- https://fonts.google.com/specimen/VT323
 
 # External (not in the unitypackage)
 
