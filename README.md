@@ -5,6 +5,10 @@
 - https://github.com/JetBrains/Unity3dRider
 - (2017-02-18) c27350a5563b46d4b3c46dcb8c547db0828f7a6a
 
+## Read-only Inspector Properties
+- Editor\ReadOnlyDrawer.cs + Scripts\ReadOnlyAttribute.cs
+- http://answers.unity3d.com/questions/489942/how-to-make-a-readonly-property-in-inspector.html
+
 # Fonts
 
 ## Abel
