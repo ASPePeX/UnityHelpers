@@ -16,7 +16,9 @@ namespace Plugins.Editor.JetBrains
   [InitializeOnLoad]
   public static class RiderPlugin
   {
-    private static readonly string SlnFile;
+    private static bool Initialized;
+
+    private static string SlnFile;
 
     private static string DefaultApp
     {
@@ -41,39 +43,46 @@ namespace Plugins.Editor.JetBrains
     {
       if (Enabled)
       {
-        var riderFileInfo = new FileInfo(DefaultApp);
+        InitRiderPlugin();
+      }
+    }
 
-        var newPath = riderFileInfo.FullName;
-        // try to search the new version
+    private static void InitRiderPlugin()
+    {
+      var riderFileInfo = new FileInfo(DefaultApp);
 
-        if (!riderFileInfo.Exists)
+      var newPath = riderFileInfo.FullName;
+      // try to search the new version
+
+      if (!riderFileInfo.Exists)
+      {
+        switch (riderFileInfo.Extension)
         {
-          switch (riderFileInfo.Extension)
+          case ".exe":
           {
-            case ".exe":
-            {
-              var possibleNew =
-                riderFileInfo.Directory.Parent.Parent.GetDirectories("*ider*")
-                  .SelectMany(a => a.GetDirectories("bin"))
-                  .SelectMany(a => a.GetFiles(riderFileInfo.Name))
-                  .ToArray();
-              if (possibleNew.Length > 0)
-                newPath = possibleNew.OrderBy(a => a.LastWriteTime).Last().FullName;
-              break;
-            }
-          }
-          if (newPath != riderFileInfo.FullName)
-          {
-            Log(string.Format("Update {0} to {1}", riderFileInfo.FullName, newPath));
-            EditorPrefs.SetString("kScriptsDefaultApp", newPath);
+            var possibleNew =
+              riderFileInfo.Directory.Parent.Parent.GetDirectories("*ider*")
+                .SelectMany(a => a.GetDirectories("bin"))
+                .SelectMany(a => a.GetFiles(riderFileInfo.Name))
+                .ToArray();
+            if (possibleNew.Length > 0)
+              newPath = possibleNew.OrderBy(a => a.LastWriteTime).Last().FullName;
+            break;
           }
         }
-
-        var projectDirectory = Directory.GetParent(Application.dataPath).FullName;
-        var projectName = Path.GetFileName(projectDirectory);
-        SlnFile = Path.Combine(projectDirectory, string.Format("{0}.sln", projectName));
-        UpdateUnitySettings(SlnFile);
+        if (newPath != riderFileInfo.FullName)
+        {
+          Log(string.Format("Update {0} to {1}", riderFileInfo.FullName, newPath));
+          EditorPrefs.SetString("kScriptsDefaultApp", newPath);
+        }
       }
+
+      var projectDirectory = Directory.GetParent(Application.dataPath).FullName;
+      var projectName = Path.GetFileName(projectDirectory);
+      SlnFile = Path.Combine(projectDirectory, string.Format("{0}.sln", projectName));
+      UpdateUnitySettings(SlnFile);
+
+      Initialized = true;
     }
 
     /// <summary>
@@ -101,9 +110,16 @@ namespace Plugins.Editor.JetBrains
     [UnityEditor.Callbacks.OnOpenAssetAttribute()]
     static bool OnOpenedAsset(int instanceID, int line)
     {
-      var riderFileInfo = new FileInfo(DefaultApp);
-      if (Enabled && (riderFileInfo.Exists || riderFileInfo.Extension == ".app"))
+      if (Enabled)
       {
+        if (!Initialized)
+        {
+          // make sure the plugin was initialized first.
+          // this can happen in case "Rider" was set as the default scripting app only after this plugin was imported.
+          InitRiderPlugin();
+          RiderAssetPostprocessor.OnGeneratedCSProjectFiles();
+        }
+
         string appPath = Path.GetDirectoryName(Application.dataPath);
 
         // determine asset that has been double clicked in the project view
@@ -117,7 +133,7 @@ namespace Plugins.Editor.JetBrains
           if (!CallUDPRider(line, SlnFile, assetFilePath))
           {
               var args = string.Format("{0}{1}{0} -l {2} {0}{3}{0}", "\"", SlnFile, line, assetFilePath);
-              CallRider(riderFileInfo.FullName, args);
+              CallRider(DefaultApp, args);
           }
           return true;
         }
@@ -168,13 +184,17 @@ namespace Plugins.Editor.JetBrains
 
     private static void CallRider(string riderPath, string args)
     {
-      if (!new FileInfo(riderPath).Exists)
+      var riderFileInfo = new FileInfo(riderPath);
+      var macOSVersion = riderFileInfo.Extension == ".app";
+      var riderExists = macOSVersion ? new DirectoryInfo(riderPath).Exists : riderFileInfo.Exists;
+      
+      if (!riderExists)
       {
         EditorUtility.DisplayDialog("Rider executable not found", "Please update 'External Script Editor' path to JetBrains Rider.", "OK");
       }
 
       var proc = new Process();
-      if (new FileInfo(riderPath).Extension == ".app")
+      if (macOSVersion)
       {
         proc.StartInfo.FileName = "open";
         proc.StartInfo.Arguments = string.Format("-n {0}{1}{0} --args {2}", "\"", "/" + riderPath, args);
@@ -240,7 +260,7 @@ namespace Plugins.Editor.JetBrains
       SyncSolution();
 
       // Load Project
-      CallRider(new FileInfo(DefaultApp).FullName, string.Format("{0}{1}{0}", "\"", SlnFile));
+      CallRider(DefaultApp, string.Format("{0}{1}{0}", "\"", SlnFile));
     }
 
     [MenuItem("Assets/Open C# Project in Rider", true, 1000)]

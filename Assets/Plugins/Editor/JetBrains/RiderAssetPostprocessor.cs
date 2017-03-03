@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using UnityEditor;
+using UnityEngine;
 
 namespace Plugins.Editor.JetBrains
 {
@@ -21,6 +23,9 @@ namespace Plugins.Editor.JetBrains
     private const string EDITOR_PROJECT_MANUAL_CONFIG_RELATIVE_FILE_PATH = "gmcs.rsp";
     private static readonly string  EDITOR_PROJECT_MANUAL_CONFIG_ABSOLUTE_FILE_PATH
       = Path.Combine(UnityEngine.Application.dataPath, EDITOR_PROJECT_MANUAL_CONFIG_RELATIVE_FILE_PATH);
+
+    private static readonly int unityProcessId = Process.GetCurrentProcess().Id;
+    private static readonly string unityVersion = Application.unityVersion;
 
     public static void OnGeneratedCSProjectFiles()
     {
@@ -58,12 +63,10 @@ namespace Plugins.Editor.JetBrains
 
     private static string GetFileNameWithoutExtension(string path)
     {
-      if (path == null)
-        return (string) null;
+      if (string.IsNullOrEmpty(path))
+        return null;
       int length;
-      if ((length = path.LastIndexOf('.')) == -1)
-        return path;
-      return path.Substring(0, length);
+      return (length = path.LastIndexOf('.')) == -1 ? path : path.Substring(0, length);
     }
 
     private static void UpgradeProjectFile(string projectFile)
@@ -75,12 +78,22 @@ namespace Plugins.Editor.JetBrains
 
       FixTargetFrameworkVersion(projectContentElement, xmlns);
       SetLangVersion(projectContentElement, xmlns);
+      SetUnityData(projectContentElement, xmlns);
       SetManuallyDefinedComilingSettings(projectFile, projectContentElement, xmlns);
 
       SetXCodeDllReference("UnityEditor.iOS.Extensions.Xcode.dll", xmlns, projectContentElement);
       SetXCodeDllReference("UnityEditor.iOS.Extensions.Common.dll", xmlns, projectContentElement);
 
       doc.Save(projectFile);
+    }
+
+    private static void SetUnityData(XElement projectElement, XNamespace xmlns)
+    {
+      // will be used by dependent Rider to provide Denug Configuration and other features
+      projectElement.AddFirst(new XElement(xmlns + "PropertyGroup",
+        new XElement(xmlns + "unityProcessId", unityProcessId.ToString())));
+      projectElement.AddFirst(new XElement(xmlns + "PropertyGroup",
+        new XElement(xmlns + "unityVersion", unityVersion)));
     }
 
     private static void SetManuallyDefinedComilingSettings(string projectFile, XElement projectContentElement, XNamespace xmlns)
@@ -179,10 +192,13 @@ namespace Plugins.Editor.JetBrains
         return;
 
       var targetFrameworkVersion = projectElement.Elements(xmlns + "PropertyGroup").
-        Elements(xmlns + "TargetFrameworkVersion").First();
-      var version = new Version(targetFrameworkVersion.Value.Substring(1));
-      if (version < new Version(4, 5))
-        targetFrameworkVersion.SetValue("v4.5");
+        Elements(xmlns + "TargetFrameworkVersion").FirstOrDefault(); // Processing csproj files, which are not Unity-generated #56
+      if (targetFrameworkVersion != null)
+      {
+        var version = new Version(targetFrameworkVersion.Value.Substring(1));
+        if (version < new Version(4, 5))
+          targetFrameworkVersion.SetValue("v4.5");
+      }
     }
 
     private static void SetLangVersion(XElement projectElement, XNamespace xmlns)
@@ -199,11 +215,15 @@ namespace Plugins.Editor.JetBrains
       // https://bitbucket.org/alexzzzz/unity-c-5.0-and-6.0-integration/src
       if (Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "CSharp70Support")))
         return "7";
-      if (Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "CSharp60SUpport")))
+      if (Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "CSharp60Support")))
         return "6";
 
       // Unity 5.5 supports C# 6, but only when targeting .NET 4.6. The enum doesn't exist pre Unity 5.5
+      #if UNITY_5_0 || UNITY_5_1 || UNITY_5_2 || UNITY_5_3|| UNITY_5_4 || UNITY_5_5
       if ((int)PlayerSettings.apiCompatibilityLevel >= 3)
+      #else
+      if ((int) PlayerSettings.GetApiCompatibilityLevel(EditorUserBuildSettings.selectedBuildTargetGroup) >= 3)
+      #endif
         return "6";
 
       return "4";

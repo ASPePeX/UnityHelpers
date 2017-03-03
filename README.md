@@ -3,7 +3,7 @@
 ## Rider IDE Integration
 - Plugins\Editor\JetBrains\*
 - https://github.com/JetBrains/Unity3dRider
-- (2017-01-27) 2f3b78fdc6b2c56802d09901a290f65068183867
+- (2017-03-03) 81b8daa30f1436fae5a47c4b93e704a015e03da1
 
 # Fonts
 
